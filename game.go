@@ -7,7 +7,7 @@ import (
 
 const (
 	rows    int  = 25
-	columns int  = 40
+	columns int  = 80
 	dead    rune = '.'
 	alive   rune = 'o'
 )
@@ -38,13 +38,34 @@ func (uni Universe) show() {
 }
 
 func (uni Universe) seed() {
-	for range 25 {
+	for range rows * columns / 4 {
 		uni[rand.Intn(rows)][rand.Intn(columns)] = true
 	}
+}
+
+func (uni Universe) alive(i, j int) bool {
+	return uni[(i+rows)%rows][(j+columns)%columns]
+}
+
+func (uni Universe) count(i, j int) int {
+	count := 0
+	for x := i - 1; x <= i+1; x++ {
+		for y := j - 1; y <= j+1; y++ {
+			if x == i && y == j {
+				continue
+			}
+			if uni.alive(x, y) {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func main() {
 	var uni Universe = NewUniverse()
 	uni.seed()
 	uni.show()
+	var c int = uni.count(1, 2)
+	fmt.Println(c)
 }
