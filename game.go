@@ -62,10 +62,33 @@ func (uni Universe) count(i, j int) int {
 	return count
 }
 
+func step(uni1, uni2 *Universe) {
+	for i := range *uni1 {
+		for j := range (*uni1)[i] {
+			count := (*uni1).count(i, j)
+			if (*uni1)[i][j] == true && (count < 2 || count > 3) {
+				(*uni2)[i][j] = false
+			} else if (*uni1)[i][j] == false && count == 3 {
+				(*uni2)[i][j] = true
+			} else {
+				(*uni2)[i][j] = (*uni1)[i][j]
+			}
+		}
+	}
+	*uni1, *uni2 = *uni2, *uni1
+}
+
 func main() {
-	var uni Universe = NewUniverse()
-	uni.seed()
-	uni.show()
-	var c int = uni.count(1, 2)
-	fmt.Println(c)
+	var uni1 Universe = NewUniverse()
+	var uni2 Universe = NewUniverse()
+	uni1[0][0] = true
+	uni1[0][1] = true
+	uni1[0][2] = true
+	uni1[1][0] = true
+	uni1[1][1] = true
+	uni1[1][2] = true
+	uni1.show()
+	fmt.Println("\x0c")
+	step(&uni1, &uni2)
+	uni1.show()
 }
