@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 )
 
 const (
@@ -13,6 +13,12 @@ const (
 )
 
 type Universe [][]bool
+
+type Game struct {
+	uni1 Universe
+	uni2 Universe
+
+}
 
 func NewUniverse() Universe {
 	buf := make([]bool, rows*columns)
@@ -39,7 +45,7 @@ func (uni Universe) show() {
 
 func (uni Universe) seed() {
 	for range rows * columns / 4 {
-		uni[rand.Intn(rows)][rand.Intn(columns)] = true
+		uni[rand.IntN(rows)][rand.IntN(columns)] = true
 	}
 }
 
