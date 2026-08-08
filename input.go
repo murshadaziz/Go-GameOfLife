@@ -10,3 +10,22 @@ func listenForInput(keys chan<- rune) {
 		keys <- rune(b[0])
 	}
 }
+func gameLoop(keys <-chan rune) {
+	for {
+		key := <-keys
+
+		switch key {
+		case 'q':
+			return
+
+		case ' ':
+			// advance simulation
+
+		case 's':
+			// seed / something
+
+		case 'p':
+			// pause
+		}
+	}
+}

@@ -15,10 +15,11 @@ const (
 type Universe [][]bool
 
 type Game struct {
-	uni1 Universe
-	uni2 Universe
-	
-
+	uni1     Universe
+	uni2     Universe
+	Rows     int
+	Columns  int
+	isPaused bool
 }
 
 func NewUniverse() Universe {
