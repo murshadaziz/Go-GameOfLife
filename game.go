@@ -1,15 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"time"
 )
 
 const (
-	rows    int  = 25
-	columns int  = 80
-	dead    rune = '.'
-	alive   rune = 'o'
+	rows         int  = 25
+	columns      int  = 80
+	dead         rune = '.'
+	alive        rune = 'o'
+	altScreenOn       = "\x1b[?1049h"
+	altScreenOff      = "\x1b[?1049l"
+	cursorHide        = "\x1b[?25l"
+	cursorShow        = "\x1b[?25h"
+	clearScreen       = "\x1b[2J"
+	cursorHome        = "\x1b[H"
 )
 
 type Universe [][]bool
@@ -20,49 +29,44 @@ type Game struct {
 	Rows     int
 	Columns  int
 	isPaused bool
+	buffer   *bufio.Writer
 }
 
-func NewUniverse() Universe {
-	buf := make([]bool, rows*columns)
-	var uni Universe = make(Universe, rows)
-	for i := range uni {
-		uni[i] = buf[i*columns : (i+1)*columns]
-	}
-	return uni
-}
+func (G *Game) init() {
+	buf1 := make([]bool, G.Rows*G.Columns)
+	G.uni1 = make(Universe, G.Rows)
+	G.buffer = bufio.NewWriter(os.Stdout)
 
-func (uni Universe) show() {
-	for i := range uni {
-		for j := range uni[i] {
-			if uni[i][j] == false {
-				fmt.Printf("%c", dead)
-			} else {
-				fmt.Printf("%c", alive)
-			}
-		}
-		fmt.Println()
+	for i := range G.uni1 {
+		G.uni1[i] = buf1[i*G.Columns : (i+1)*G.Columns]
 	}
 
-}
+	buf2 := make([]bool, G.Rows*G.Columns)
+	G.uni2 = make(Universe, G.Rows)
 
-func (uni Universe) seed() {
-	for range rows * columns / 4 {
-		uni[rand.IntN(rows)][rand.IntN(columns)] = true
+	for i := range G.uni2 {
+		G.uni2[i] = buf2[i*G.Columns : (i+1)*G.Columns]
 	}
 }
 
-func (uni Universe) alive(i, j int) bool {
-	return uni[(i+rows)%rows][(j+columns)%columns]
+func (G *Game) seed() {
+	for range G.Rows * G.Columns / 4 {
+		G.uni1[rand.IntN(G.Rows)][rand.IntN(G.Columns)] = true
+	}
 }
 
-func (uni Universe) count(i, j int) int {
+func (G *Game) alive(i, j int) bool {
+	return G.uni1[(i+G.Rows)%G.Rows][(j+G.Columns)%G.Columns]
+}
+
+func (G *Game) count(i, j int) int {
 	count := 0
 	for x := i - 1; x <= i+1; x++ {
 		for y := j - 1; y <= j+1; y++ {
 			if x == i && y == j {
 				continue
 			}
-			if uni.alive(x, y) {
+			if G.alive(x, y) {
 				count++
 			}
 		}
@@ -70,33 +74,55 @@ func (uni Universe) count(i, j int) int {
 	return count
 }
 
-func step(uni1, uni2 *Universe) {
-	for i := range *uni1 {
-		for j := range (*uni1)[i] {
-			count := (*uni1).count(i, j)
-			if (*uni1)[i][j] == true && (count < 2 || count > 3) {
-				(*uni2)[i][j] = false
-			} else if (*uni1)[i][j] == false && count == 3 {
-				(*uni2)[i][j] = true
+func (G *Game) step() {
+	for i := range G.uni1 {
+		for j := range G.uni1[i] {
+			count := G.count(i, j)
+			if G.uni1[i][j] == true && (count < 2 || count > 3) {
+				G.uni2[i][j] = false
+			} else if G.uni1[i][j] == false && count == 3 {
+				G.uni2[i][j] = true
 			} else {
-				(*uni2)[i][j] = (*uni1)[i][j]
+				G.uni2[i][j] = G.uni1[i][j]
 			}
 		}
 	}
-	*uni1, *uni2 = *uni2, *uni1
+	G.uni1, G.uni2 = G.uni2, G.uni1
+}
+
+func (G *Game) draw() {
+	G.buffer.Write([]byte(cursorHome))
+	for i := range G.uni1 {
+		for j := range G.uni1[i] {
+			if G.uni1[i][j] {
+				G.buffer.WriteByte(byte(alive))
+			} else {
+				G.buffer.WriteByte(byte(dead))
+			}
+		}
+		G.buffer.WriteByte('\n')
+	}
+	G.buffer.Flush()
+}
+
+func (G *Game) render() {
+	fmt.Print(altScreenOn + cursorHide + clearScreen)
+	defer fmt.Print(cursorShow + altScreenOff)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		G.step()
+		G.draw()
+	}
 }
 
 func main() {
-	var uni1 Universe = NewUniverse()
-	var uni2 Universe = NewUniverse()
-	uni1[0][0] = true
-	uni1[0][1] = true
-	uni1[0][2] = true
-	uni1[1][0] = true
-	uni1[1][1] = true
-	uni1[1][2] = true
-	uni1.show()
-	fmt.Println("\x0c")
-	step(&uni1, &uni2)
-	uni1.show()
+	game := &Game{
+		Rows:    rows,
+		Columns: columns,
+	}
+	game.init()
+	game.seed()
+	game.render()
 }
