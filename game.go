@@ -17,6 +17,7 @@ type Universe [][]bool
 type Game struct {
 	uni1 Universe
 	uni2 Universe
+	
 
 }
 
