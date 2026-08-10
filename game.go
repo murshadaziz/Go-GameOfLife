@@ -6,35 +6,53 @@ import (
 	"math/rand/v2"
 	"os"
 	"time"
+
+	"github.com/eiannone/keyboard"
 )
 
 const (
-	rows         int  = 25
-	columns      int  = 80
-	dead         rune = '.'
-	alive        rune = 'o'
-	altScreenOn       = "\x1b[?1049h"
-	altScreenOff      = "\x1b[?1049l"
-	cursorHide        = "\x1b[?25l"
-	cursorShow        = "\x1b[?25h"
-	clearScreen       = "\x1b[2J"
-	cursorHome        = "\x1b[H"
+	rows    int  = 25
+	columns int  = 80
+	dead    byte = '.'
+	alive   byte = 'o'
+	// ANSI escape codes for terminal control sequences
+	altScreenOn  = "\x1b[?1049h"
+	altScreenOff = "\x1b[?1049l"
+	cursorHide   = "\x1b[?25l"
+	cursorShow   = "\x1b[?25h"
+	clearScreen  = "\x1b[2J"
+	cursorHome   = "\x1b[H"
 )
 
-type Universe [][]bool
-
-type Game struct {
-	uni1     Universe
-	uni2     Universe
-	Rows     int
-	Columns  int
-	isPaused bool
-	buffer   *bufio.Writer
+// keyEvent struct represents a keyboard event with the character and key pressed.
+type keyEvent struct {
+	char rune
+	key  keyboard.Key
 }
 
+type Universe [][]bool // A 2D slice of booleans representing the game grid
+
+// Game struct encapsulates the state and behavior of the game
+type Game struct {
+	uni1      Universe
+	uni2      Universe
+	Rows      int
+	Columns   int
+	isPaused  bool
+	buffer    *bufio.Writer
+	cursorRow int
+	cursorCol int
+	state     int // 0 = welcome, 1 = draw, 2 = random seed
+}
+
+// init initializes the game by creating two universes and a buffered writer for output.
 func (G *Game) init() {
 	buf1 := make([]bool, G.Rows*G.Columns)
 	G.uni1 = make(Universe, G.Rows)
+	/* Create a buffered writer that accumulates output before writing it to stdout.
+	the NewWriter function creates a new buffered writer that writes to the specified io.Writer (in this case, os.Stdout).
+	NewWriter accepts anthing that implements the io.Writer interface(has method Write([]byte)), and returns a pointer to a new bufio.Writer.
+	*/
 	G.buffer = bufio.NewWriter(os.Stdout)
 
 	for i := range G.uni1 {
@@ -49,16 +67,19 @@ func (G *Game) init() {
 	}
 }
 
+// Randomly seeds the first universe with live cells.
 func (G *Game) seed() {
 	for range G.Rows * G.Columns / 4 {
 		G.uni1[rand.IntN(G.Rows)][rand.IntN(G.Columns)] = true
 	}
 }
 
+// alive checks if the cell at position (i, j) is alive, wrapping around the edges of the universe.
 func (G *Game) alive(i, j int) bool {
 	return G.uni1[(i+G.Rows)%G.Rows][(j+G.Columns)%G.Columns]
 }
 
+// count counts the number of alive neighbors for the cell at position (i, j).
 func (G *Game) count(i, j int) int {
 	count := 0
 	for x := i - 1; x <= i+1; x++ {
@@ -87,17 +108,108 @@ func (G *Game) step() {
 			}
 		}
 	}
-	G.uni1, G.uni2 = G.uni2, G.uni1
+	G.uni1, G.uni2 = G.uni2, G.uni1 //Swap the two universes
 }
 
+// draw renders the current state of the universe to the terminal.
 func (G *Game) draw() {
+	//This writer accumulates data in an internal buffer and writes it to the underlying writer (os.Stdout) when the buffer is full or when Flush() is called.
 	G.buffer.Write([]byte(cursorHome))
 	for i := range G.uni1 {
 		for j := range G.uni1[i] {
 			if G.uni1[i][j] {
-				G.buffer.WriteByte(byte(alive))
+				G.buffer.WriteByte(alive)
 			} else {
-				G.buffer.WriteByte(byte(dead))
+				G.buffer.WriteByte(dead)
+			}
+		}
+		G.buffer.WriteByte('\n')
+	}
+	G.buffer.Flush() // Flushes the buffer, writing any accumulated data to the underlying writer (os.Stdout).
+}
+
+// render sets up the game loop, updating and drawing the universe at a fixed frame rate.
+func (G *Game) render(miliseconds int, quit <-chan struct{}) {
+	// ANSI escape codes to switch to the alternate screen buffer, hide the cursor, and clear the screen.
+	fmt.Print(altScreenOn + cursorHide + clearScreen)
+	// The defer statement ensures that the cursor is shown and the alternate screen buffer is turned off when the function returns, even if an error occurs or the function exits early.
+	defer fmt.Print(cursorShow + altScreenOff)
+	// Defines the frame rate for the game loop.
+	ticker := time.NewTicker(time.Duration(miliseconds) * time.Millisecond)
+
+	// Stops the the ticker when the function returns, releasing any resources associated with it.
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			G.step()
+			G.draw()
+		case <-quit:
+			return
+		}
+	}
+}
+
+// Switches the state of the cell at position (i, j) between alive and dead.
+func (G *Game) toggleCell(i, j int) {
+	G.uni1[i][j] = !G.uni1[i][j]
+}
+
+// clearGrid sets all cells in both universes to dead.
+func (g *Game) clearGrid() {
+	for i := range g.uni1 {
+		for j := range g.uni1[i] {
+			g.uni1[i][j] = false
+			g.uni2[i][j] = false
+		}
+	}
+}
+func spaces(n int) string {
+	if n < 0 {
+		n = 0
+	}
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = ' '
+	}
+	return string(b)
+}
+
+// drawWelcome draws the title screen and the menu: d = draw, r = random, q = quit.
+func (G *Game) drawWelcome() {
+	G.buffer.WriteString(altScreenOn + clearScreen + cursorHome)
+	G.state = 0
+
+	title := "GAME OF LIFE"
+	pad := spaces((G.Columns - len(title)) / 2)
+
+	G.buffer.WriteString("\n\n")
+	G.buffer.WriteString(pad)
+	G.buffer.WriteString(title)
+	G.buffer.WriteString("\n\n")
+	G.buffer.WriteString(pad)
+	G.buffer.WriteString("d - draw your own pattern\n")
+	G.buffer.WriteString(pad)
+	G.buffer.WriteString("r - random seed\n")
+	G.buffer.WriteString(pad)
+	G.buffer.WriteString("q - quit\n")
+	G.buffer.Flush()
+}
+
+// drawWithCursor renders the grid like draw(), but marks the cursor's
+// current position so you can see where space will toggle a cell.
+func (G *Game) drawWithCursor() {
+	G.buffer.Write([]byte(cursorHome))
+	for i := range G.uni1 {
+		for j := range G.uni1[i] {
+			switch {
+			case i == G.cursorRow && j == G.cursorCol:
+				G.buffer.WriteByte('X')
+			case G.uni1[i][j]:
+				G.buffer.WriteByte(alive)
+			default:
+				G.buffer.WriteByte(dead)
 			}
 		}
 		G.buffer.WriteByte('\n')
@@ -105,15 +217,50 @@ func (G *Game) draw() {
 	G.buffer.Flush()
 }
 
-func (G *Game) render() {
-	fmt.Print(altScreenOn + cursorHide + clearScreen)
-	defer fmt.Print(cursorShow + altScreenOff)
+// runEditor lets the user move a cursor around the grid with h/j/k/l,
+// toggle the cell under it with space, reseed with 'r', and hand off to
+// the simulation with Enter. 'q'/Ctrl+C are caught upstream in
+// listenForInput, which closes quit — so this func doesn't need to check
+// for them itself.
+func (G *Game) runEditor(keys <-chan keyEvent, quit <-chan struct{}) {
+	G.state = 1
+	G.cursorRow, G.cursorCol = G.Rows/2, G.Columns/2
+	G.drawWithCursor()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for range ticker.C {
-		G.step()
-		G.draw()
+	for {
+		select {
+		case <-quit:
+			return
+		case ev := <-keys:
+			switch {
+			case ev.char == 'h':
+				if G.cursorCol > 0 {
+					G.cursorCol--
+				}
+			case ev.char == 'l':
+				if G.cursorCol < G.Columns-1 {
+					G.cursorCol++
+				}
+			case ev.char == 'k':
+				if G.cursorRow > 0 {
+					G.cursorRow--
+				}
+			case ev.char == 'j':
+				if G.cursorRow < G.Rows-1 {
+					G.cursorRow++
+				}
+			case ev.key == keyboard.KeySpace:
+				G.toggleCell(G.cursorRow, G.cursorCol)
+			case ev.char == 'r':
+				G.seed()
+			case ev.key == keyboard.KeyEnter:
+				G.render(100, quit) // enter: done drawing, start simulation
+				return
+			default:
+				continue
+			}
+			G.drawWithCursor()
+		}
 	}
 }
 
@@ -122,7 +269,13 @@ func main() {
 		Rows:    rows,
 		Columns: columns,
 	}
+	keyboard.Open()
+	defer keyboard.Close()
 	game.init()
-	game.seed()
-	game.render()
+	keys := make(chan keyEvent)
+	quit := make(chan struct{})
+	game.drawWelcome()
+	go listenForInput(keys, quit)
+	game.WelcomeLoop(keys, quit)
+
 }

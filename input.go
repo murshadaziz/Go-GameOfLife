@@ -1,31 +1,41 @@
 // input.go
 package main
 
-import "os"
+import (
+	"github.com/eiannone/keyboard"
+)
 
-func listenForInput(keys chan<- rune) {
+func listenForInput(keys chan<- keyEvent, quit chan<- struct{}) {
 	for {
-		var b []byte = make([]byte, 1)
-		os.Stdin.Read(b)
-		keys <- rune(b[0])
+		char, key, err := keyboard.GetKey()
+		if err != nil {
+			return
+		}
+		if char == 'q' || key == keyboard.KeyCtrlC {
+			close(quit)
+			return
+		}
+		keys <- keyEvent{char: char, key: key}
 	}
 }
-func gameLoop(keys <-chan rune) {
+func (G *Game) WelcomeLoop(keys <-chan keyEvent, quit <-chan struct{}) {
+welcomeloop:
 	for {
-		key := <-keys
-
-		switch key {
-		case 'q':
+		select {
+		case <-quit:
 			return
-
-		case ' ':
-			// advance simulation
-
-		case 's':
-			// seed / something
-
-		case 'p':
-			// pause
+		case keychar := <-keys:
+			switch {
+			case keychar.char == 'd':
+				G.runEditor(keys, quit)
+				break welcomeloop
+			case keychar.char == 'r':
+				G.seed()
+				G.render(100, quit)
+				break welcomeloop
+			default:
+				continue
+			}
 		}
 	}
 }
