@@ -5,16 +5,19 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/eiannone/keyboard"
 )
 
 const (
-	rows    int  = 25
-	columns int  = 80
-	dead    byte = '.'
-	alive   byte = 'o'
+	dead  byte = ' '
+	alive byte = 'o'
 	// ANSI escape codes for terminal control sequences
 	altScreenOn  = "\x1b[?1049h"
 	altScreenOff = "\x1b[?1049l"
@@ -45,8 +48,21 @@ type Game struct {
 	state     int // 0 = welcome, 1 = draw, 2 = random seed
 }
 
+// setTerminalSize retrieves the current terminal size and updates rows and columns in the Game struct
+func (G *Game) setTerminalSize() {
+	columns, rows, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		fmt.Println("Could not get terminal size:", err)
+		return
+	}
+
+	G.Columns = columns - 3
+	G.Rows = rows - 3
+}
+
 // init initializes the game by creating two universes and a buffered writer for output.
 func (G *Game) init() {
+	G.setTerminalSize()
 	buf1 := make([]bool, G.Rows*G.Columns)
 	G.uni1 = make(Universe, G.Rows)
 	/* Create a buffered writer that accumulates output before writing it to stdout.
@@ -129,7 +145,7 @@ func (G *Game) draw() {
 }
 
 // render sets up the game loop, updating and drawing the universe at a fixed frame rate.
-func (G *Game) render(miliseconds int, quit <-chan struct{}) {
+func (G *Game) render(miliseconds int, quit <-chan struct{}, keys <-chan keyEvent) {
 	// ANSI escape codes to switch to the alternate screen buffer, hide the cursor, and clear the screen.
 	fmt.Print(altScreenOn + cursorHide + clearScreen)
 	// The defer statement ensures that the cursor is shown and the alternate screen buffer is turned off when the function returns, even if an error occurs or the function exits early.
@@ -147,6 +163,18 @@ func (G *Game) render(miliseconds int, quit <-chan struct{}) {
 			G.draw()
 		case <-quit:
 			return
+
+		case ev := <-keys:
+			switch {
+			case ev.char == 'p':
+				G.isPaused = !G.isPaused
+			case ev.char == 'r' && G.isPaused:
+				G.seed()
+				G.draw()
+			case ev.char == 'c' && G.isPaused:
+				G.clearGrid()
+				G.draw()
+			}
 		}
 	}
 }
@@ -193,7 +221,7 @@ func (G *Game) drawWelcome() {
 	G.buffer.WriteString(pad)
 	G.buffer.WriteString("r - random seed\n")
 	G.buffer.WriteString(pad)
-	G.buffer.WriteString("q - quit\n")
+	G.buffer.WriteString("Ctrl+C - quit\n")
 	G.buffer.Flush()
 }
 
@@ -205,7 +233,7 @@ func (G *Game) drawWithCursor() {
 		for j := range G.uni1[i] {
 			switch {
 			case i == G.cursorRow && j == G.cursorCol:
-				G.buffer.WriteByte('X')
+				G.buffer.WriteByte('I') // Mark the cursor position with 'I'
 			case G.uni1[i][j]:
 				G.buffer.WriteByte(alive)
 			default:
@@ -231,30 +259,30 @@ func (G *Game) runEditor(keys <-chan keyEvent, quit <-chan struct{}) {
 		select {
 		case <-quit:
 			return
-		case ev := <-keys:
+		case key := <-keys:
 			switch {
-			case ev.char == 'h':
+			case key.char == 'a':
 				if G.cursorCol > 0 {
 					G.cursorCol--
 				}
-			case ev.char == 'l':
+			case key.char == 'd':
 				if G.cursorCol < G.Columns-1 {
 					G.cursorCol++
 				}
-			case ev.char == 'k':
+			case key.char == 'w':
 				if G.cursorRow > 0 {
 					G.cursorRow--
 				}
-			case ev.char == 'j':
+			case key.char == 's':
 				if G.cursorRow < G.Rows-1 {
 					G.cursorRow++
 				}
-			case ev.key == keyboard.KeySpace:
+			case key.key == keyboard.KeySpace:
 				G.toggleCell(G.cursorRow, G.cursorCol)
-			case ev.char == 'r':
+			case key.char == 'r':
 				G.seed()
-			case ev.key == keyboard.KeyEnter:
-				G.render(100, quit) // enter: done drawing, start simulation
+			case key.key == keyboard.KeyEnter:
+				G.render(100, quit, keys) // enter: done drawing, start simulation
 				return
 			default:
 				continue
@@ -265,17 +293,34 @@ func (G *Game) runEditor(keys <-chan keyEvent, quit <-chan struct{}) {
 }
 
 func main() {
-	game := &Game{
-		Rows:    rows,
-		Columns: columns,
-	}
+	game := &Game{}
 	keyboard.Open()
 	defer keyboard.Close()
 	game.init()
 	keys := make(chan keyEvent)
 	quit := make(chan struct{})
+	var quitOnce sync.Once // Ensures that the quit channel is closed only once
+
+	// closeQuit is a helper function to close the quit channel safely.
+	closeQuit := func() {
+		quitOnce.Do(func() {
+			close(quit)
+		})
+	}
+
+	// Catch Ctrl+C (SIGINT) and kill/SIGTERM.
+	sigCh := make(chan os.Signal, 1)                    // Create a channel to receive OS signals with a buffer size of 1
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM) // Catches the interrupt signal (Ctrl+C) and the termination signal (SIGTERM) and sends them to sigCh
+	defer signal.Stop(sigCh)                            // Stops the signal notification when the main function exits, preventing any further signals from being sent to sigCh
+
+	// Listen for OS signals.
+	go func() {
+		<-sigCh
+		fmt.Println(clearScreen + cursorShow + altScreenOff) // Clear the screen and show the cursor before exiting
+		closeQuit()                                          // Close the quit channel when a signal is received, signaling the game to exit
+	}()
 	game.drawWelcome()
-	go listenForInput(keys, quit)
+	go listenForInput(keys, closeQuit) // Start listening for keyboard input in a separate goroutine
 	game.WelcomeLoop(keys, quit)
 
 }

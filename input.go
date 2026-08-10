@@ -5,14 +5,14 @@ import (
 	"github.com/eiannone/keyboard"
 )
 
-func listenForInput(keys chan<- keyEvent, quit chan<- struct{}) {
+func listenForInput(keys chan<- keyEvent, closeQuit func()) {
 	for {
 		char, key, err := keyboard.GetKey()
 		if err != nil {
 			return
 		}
-		if char == 'q' || key == keyboard.KeyCtrlC {
-			close(quit)
+		if key == keyboard.KeyCtrlC {
+			closeQuit()
 			return
 		}
 		keys <- keyEvent{char: char, key: key}
@@ -31,7 +31,7 @@ welcomeloop:
 				break welcomeloop
 			case keychar.char == 'r':
 				G.seed()
-				G.render(100, quit)
+				G.render(100, quit, keys)
 				break welcomeloop
 			default:
 				continue
