@@ -159,8 +159,10 @@ func (G *Game) render(miliseconds int, quit <-chan struct{}, keys <-chan keyEven
 	for {
 		select {
 		case <-ticker.C:
-			G.step()
-			G.draw()
+			if !G.isPaused {
+				G.step()
+				G.draw()
+			}
 		case <-quit:
 			return
 
@@ -173,6 +175,9 @@ func (G *Game) render(miliseconds int, quit <-chan struct{}, keys <-chan keyEven
 				G.draw()
 			case ev.char == 'c' && G.isPaused:
 				G.clearGrid()
+				G.draw()
+			case ev.char == 'd' && G.isPaused:
+				G.runEditor(keys, quit)
 				G.draw()
 			}
 		}
@@ -282,7 +287,7 @@ func (G *Game) runEditor(keys <-chan keyEvent, quit <-chan struct{}) {
 			case key.char == 'r':
 				G.seed()
 			case key.key == keyboard.KeyEnter:
-				G.render(100, quit, keys) // enter: done drawing, start simulation
+				// enter: done drawing
 				return
 			default:
 				continue

@@ -28,6 +28,7 @@ welcomeloop:
 			switch {
 			case keychar.char == 'd':
 				G.runEditor(keys, quit)
+				G.render(100, quit, keys)
 				break welcomeloop
 			case keychar.char == 'r':
 				G.seed()
