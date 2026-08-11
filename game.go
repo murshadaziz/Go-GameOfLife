@@ -258,6 +258,7 @@ func (G *Game) drawWithCursor() {
 		}
 		G.buffer.WriteByte('\n')
 	}
+	G.drawFooter("wasd move   space toggle   enter confirm")
 	G.buffer.Flush()
 }
 
