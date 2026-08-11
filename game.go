@@ -25,6 +25,7 @@ const (
 	cursorShow   = "\x1b[?25h"
 	clearScreen  = "\x1b[2J"
 	cursorHome   = "\x1b[H"
+	cursorMoveTo = "\x1b[%d;%dH"
 )
 
 // keyEvent struct represents a keyboard event with the character and key pressed.
@@ -45,7 +46,6 @@ type Game struct {
 	buffer    *bufio.Writer
 	cursorRow int
 	cursorCol int
-	state     int // 0 = welcome, 1 = draw, 2 = random seed
 }
 
 // setTerminalSize retrieves the current terminal size and updates rows and columns in the Game struct
@@ -56,8 +56,8 @@ func (G *Game) setTerminalSize() {
 		return
 	}
 
-	G.Columns = columns - 3
-	G.Rows = rows - 3
+	G.Columns = columns - 2
+	G.Rows = rows - 2
 }
 
 // init initializes the game by creating two universes and a buffered writer for output.
@@ -141,7 +141,15 @@ func (G *Game) draw() {
 		}
 		G.buffer.WriteByte('\n')
 	}
+	G.drawFooter("p pause   c clear   d draw   r random   ctrl+c quit")
 	G.buffer.Flush() // Flushes the buffer, writing any accumulated data to the underlying writer (os.Stdout).
+}
+
+func (G *Game) drawFooter(text string) {
+	pad := spaces((G.Columns - len([]rune(text))) / 2)
+	G.buffer.WriteString(pad)
+	G.buffer.WriteString(text)
+	G.buffer.WriteByte('\n')
 }
 
 // render sets up the game loop, updating and drawing the universe at a fixed frame rate.
@@ -170,6 +178,10 @@ func (G *Game) render(miliseconds int, quit <-chan struct{}, keys <-chan keyEven
 			switch {
 			case ev.char == 'p':
 				G.isPaused = !G.isPaused
+				G.draw()
+				if G.isPaused {
+					G.drawPaused()
+				}
 			case ev.char == 'r' && G.isPaused:
 				G.seed()
 				G.draw()
@@ -212,7 +224,6 @@ func spaces(n int) string {
 // drawWelcome draws the title screen and the menu: d = draw, r = random, q = quit.
 func (G *Game) drawWelcome() {
 	G.buffer.WriteString(altScreenOn + clearScreen + cursorHome)
-	G.state = 0
 
 	title := "GAME OF LIFE"
 	pad := spaces((G.Columns - len(title)) / 2)
@@ -226,7 +237,7 @@ func (G *Game) drawWelcome() {
 	G.buffer.WriteString(pad)
 	G.buffer.WriteString("r - random seed\n")
 	G.buffer.WriteString(pad)
-	G.buffer.WriteString("Ctrl+C - quit\n")
+	G.buffer.WriteString("ctrl+c - quit\n")
 	G.buffer.Flush()
 }
 
@@ -250,13 +261,21 @@ func (G *Game) drawWithCursor() {
 	G.buffer.Flush()
 }
 
+// drawPaused displays a message in the center of the screen when the game is paused.
+func (G *Game) drawPaused() {
+	msg := " PAUSED: p resume   c clear   d draw   r random   ctrl+c quit "
+	col := (G.Columns - len(msg)) / 2
+	row := G.Rows / 2
+	fmt.Fprintf(G.buffer, cursorMoveTo+"%s", row, col+1, msg)
+	G.buffer.Flush()
+}
+
 // runEditor lets the user move a cursor around the grid with h/j/k/l,
 // toggle the cell under it with space, reseed with 'r', and hand off to
 // the simulation with Enter. 'q'/Ctrl+C are caught upstream in
 // listenForInput, which closes quit — so this func doesn't need to check
 // for them itself.
 func (G *Game) runEditor(keys <-chan keyEvent, quit <-chan struct{}) {
-	G.state = 1
 	G.cursorRow, G.cursorCol = G.Rows/2, G.Columns/2
 	G.drawWithCursor()
 
