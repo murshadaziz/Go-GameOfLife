@@ -83,7 +83,9 @@ go build -o game-of-life
 
 ## Demo
 
-*(video coming soon)*
+https://github.com/user-attachments/assets/fd63a877-72ef-40a0-a324-d9f06938be86
+
+
 
 ## License
 
