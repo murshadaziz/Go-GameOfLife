@@ -26,6 +26,7 @@ const (
 	clearScreen  = "\x1b[2J"
 	cursorHome   = "\x1b[H"
 	cursorMoveTo = "\x1b[%d;%dH"
+	clearLine    = "\x1b[K"
 )
 
 // keyEvent struct represents a keyboard event with the character and key pressed.
@@ -149,6 +150,7 @@ func (G *Game) drawFooter(text string) {
 	pad := spaces((G.Columns - len([]rune(text))) / 2)
 	G.buffer.WriteString(pad)
 	G.buffer.WriteString(text)
+	G.buffer.WriteString(clearLine)
 	G.buffer.WriteByte('\n')
 }
 
